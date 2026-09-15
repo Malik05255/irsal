@@ -60,36 +60,9 @@ class LocalShareService {
 
   Future<void> start() async {
     await _loadIdentity();
-    await _startTransferServer();
-    await _startDiscovery();
-  }
-
-  Future<void> _loadIdentity() async {
-    final prefs = await SharedPreferences.getInstance();
-    var id = prefs.getString('device_id');
-    if (id == null || id.isEmpty) {
-      final random = Random.secure();
-      final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-      id = base64UrlEncode(bytes).replaceAll('=', '');
-      await prefs.setString('device_id', id);
-    }
-    _deviceId = id;
-
-    final savedName = prefs.getString('device_name');
-    if (savedName != null && savedName.trim().isNotEmpty) {
-      _deviceName = savedName.trim();
-    } else {
-      final fallback = Platform.localHostname.trim();
-      _deviceName = fallback.isEmpty ? (Platform.isWindows ? 'Windows' : 'Android') : fallback;
-    }
-  }
-
-  Future<void> _startTransferServer() async {
     _server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
     _server!.listen(_handleRequest, onError: (_) {});
-  }
 
-  Future<void> _startDiscovery() async {
     _discoverySocket = await RawDatagramSocket.bind(
       InternetAddress.anyIPv4,
       discoveryPort,
@@ -103,22 +76,45 @@ class LocalShareService {
     _pruneTimer = Timer.periodic(const Duration(seconds: 3), (_) => _prunePeers());
   }
 
+  Future<void> _loadIdentity() async {
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString('device_id');
+    if (id == null || id.isEmpty) {
+      final random = Random.secure();
+      final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+      id = base64UrlEncode(bytes).replaceAll('=', '');
+      await prefs.setString('device_id', id);
+    }
+    _deviceId = id;
+
+    final savedName = prefs.getString('device_name')?.trim();
+    if (savedName != null && savedName.isNotEmpty) {
+      _deviceName = savedName;
+    } else {
+      final hostname = Platform.localHostname.trim();
+      _deviceName = hostname.isEmpty
+          ? (Platform.isWindows ? 'Windows' : 'Android')
+          : hostname;
+    }
+  }
+
   void _onDatagramEvent(RawSocketEvent event) {
     if (event != RawSocketEvent.read) return;
     final datagram = _discoverySocket?.receive();
     if (datagram == null) return;
 
     try {
-      final raw = utf8.decode(datagram.data);
-      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final data = jsonDecode(utf8.decode(datagram.data)) as Map<String, dynamic>;
       if (data['protocol'] != protocol) return;
+
       final id = data['id'] as String?;
       final port = data['port'] as int?;
       if (id == null || id == _deviceId || port == null) return;
 
+      final rawName = (data['name'] as String?)?.trim();
       _peers[id] = PeerDevice(
         id: id,
-        name: (data['name'] as String?)?.trim().isNotEmpty == true ? data['name'] as String : 'جهاز قريب',
+        name: rawName == null || rawName.isEmpty ? 'جهاز قريب' : rawName,
         platform: (data['platform'] as String?) ?? 'unknown',
         address: datagram.address.address,
         port: port,
@@ -126,7 +122,7 @@ class LocalShareService {
       );
       _emitPeers();
     } catch (_) {
-      // Ignore unrelated UDP packets on the LAN.
+      // Ignore packets that are not from إرسال HAI.
     }
   }
 
@@ -152,20 +148,18 @@ class LocalShareService {
     final cutoff = DateTime.now().subtract(const Duration(seconds: 7));
     final before = _peers.length;
     _peers.removeWhere((_, peer) => peer.lastSeen.isBefore(cutoff));
-    if (before != _peers.length) _emitPeers();
+    if (_peers.length != before) _emitPeers();
   }
 
   void _emitPeers() {
-    final values = _peers.values.toList()
+    final devices = _peers.values.toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    _peersController.add(values);
+    _peersController.add(devices);
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
     if (request.method != 'POST') {
-      request.response
-        ..statusCode = HttpStatus.methodNotAllowed
-        ..write('POST only');
+      request.response.statusCode = HttpStatus.methodNotAllowed;
       await request.response.close();
       return;
     }
@@ -198,12 +192,18 @@ class LocalShareService {
         if (encodedName == null || encodedName.isEmpty) {
           throw const FormatException('Missing file name');
         }
-        final decodedName = utf8.decode(base64Url.decode(encodedName));
-        final safeName = _safeFileName(decodedName);
+
+        final originalName = utf8.decode(base64Url.decode(encodedName));
         final directory = await _receivedDirectory();
-        final target = await _uniqueFile(directory, safeName);
+        final target = await _uniqueFile(directory, _safeFileName(originalName));
         final sink = target.openWrite();
-        await request.pipe(sink);
+        try {
+          await for (final chunk in request) {
+            sink.add(chunk);
+          }
+        } finally {
+          await sink.close();
+        }
 
         _incomingController.add(IncomingTransfer(
           kind: 'file',
@@ -218,9 +218,7 @@ class LocalShareService {
         return;
       }
 
-      request.response
-        ..statusCode = HttpStatus.notFound
-        ..write('not found');
+      request.response.statusCode = HttpStatus.notFound;
       await request.response.close();
     } catch (error) {
       request.response
@@ -233,7 +231,9 @@ class LocalShareService {
   Future<void> sendText(PeerDevice peer, String text) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final request = await client.postUrl(Uri.parse('http://${peer.address}:${peer.port}/send/text'));
+      final request = await client.postUrl(
+        Uri.parse('http://${peer.address}:${peer.port}/send/text'),
+      );
       request.headers.contentType = ContentType('text', 'plain', charset: 'utf-8');
       request.add(utf8.encode(text));
       final response = await request.close();
@@ -246,14 +246,26 @@ class LocalShareService {
     }
   }
 
-  Future<void> sendFile(PeerDevice peer, File file, {String? displayName}) async {
-    if (!await file.exists()) throw const FileSystemException('File does not exist');
+  Future<void> sendFile(
+    PeerDevice peer,
+    File file, {
+    String? displayName,
+  }) async {
+    if (!await file.exists()) {
+      throw const FileSystemException('File does not exist');
+    }
+
     final length = await file.length();
-    final name = displayName?.trim().isNotEmpty == true ? displayName!.trim() : file.uri.pathSegments.last;
+    final requestedName = displayName?.trim();
+    final name = requestedName != null && requestedName.isNotEmpty
+        ? requestedName
+        : file.uri.pathSegments.last;
 
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 7);
     try {
-      final request = await client.postUrl(Uri.parse('http://${peer.address}:${peer.port}/send/file'));
+      final request = await client.postUrl(
+        Uri.parse('http://${peer.address}:${peer.port}/send/file'),
+      );
       request.headers.set('x-irsal-name', base64Url.encode(utf8.encode(name)));
       request.contentLength = length;
       await request.addStream(file.openRead());
@@ -274,7 +286,9 @@ class LocalShareService {
     } else {
       root = await getApplicationDocumentsDirectory();
     }
-    final directory = Directory('${root.path}${Platform.pathSeparator}Irsal HAI');
+    final directory = Directory(
+      '${root.path}${Platform.pathSeparator}Irsal HAI',
+    );
     await directory.create(recursive: true);
     return directory;
   }
@@ -286,7 +300,9 @@ class LocalShareService {
     var candidate = File('${directory.path}${Platform.pathSeparator}$name');
     var index = 1;
     while (await candidate.exists()) {
-      candidate = File('${directory.path}${Platform.pathSeparator}$base ($index)$ext');
+      candidate = File(
+        '${directory.path}${Platform.pathSeparator}$base ($index)$ext',
+      );
       index++;
     }
     return candidate;
