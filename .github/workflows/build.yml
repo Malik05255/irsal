@@ -1,0 +1,97 @@
+name: Build Irsal HAI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/local-share-mvp
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform scaffold
+        run: |
+          flutter create . --platforms=android --project-name=irsal_hai --org=com.hai
+          git checkout -- pubspec.yaml lib README.md assets tools analysis_options.yaml
+
+      - name: Generate app icon
+        run: |
+          python3 -m pip install --disable-pip-version-check pillow
+          python3 tools/generate_icon.py
+
+      - name: Configure and validate
+        run: |
+          flutter pub get
+          python3 tools/configure_platforms.py
+          dart run flutter_launcher_icons
+          flutter analyze
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Prepare artifact
+        run: cp build/app/outputs/flutter-apk/app-release.apk irsal-hai-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irsal-hai-android
+          path: irsal-hai-android.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Windows platform scaffold
+        shell: pwsh
+        run: |
+          flutter create . --platforms=windows --project-name=irsal_hai --org=com.hai
+          git checkout -- pubspec.yaml lib README.md assets tools analysis_options.yaml
+
+      - name: Generate app icon
+        shell: pwsh
+        run: |
+          py -3 -m pip install --disable-pip-version-check pillow
+          py -3 tools/generate_icon.py
+
+      - name: Configure and validate
+        shell: pwsh
+        run: |
+          flutter pub get
+          py -3 tools/configure_platforms.py
+          dart run flutter_launcher_icons
+          flutter analyze
+
+      - name: Build Windows release
+        shell: pwsh
+        run: flutter build windows --release
+
+      - name: Package Windows app
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath irsal-hai-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irsal-hai-windows-x64
+          path: irsal-hai-windows-x64.zip
+          if-no-files-found: error
