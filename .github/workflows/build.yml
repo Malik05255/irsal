@@ -7,6 +7,10 @@ on:
       - main
       - feature/local-share-mvp
 
+concurrency:
+  group: irsal-build-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
