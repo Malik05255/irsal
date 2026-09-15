@@ -74,7 +74,7 @@ jobs:
           git checkout -- pubspec.yaml lib README.md assets tools analysis_options.yaml
           if (Test-Path test) { Remove-Item -Recurse -Force test }
 
-      - name: Generate app icon
+      - name: Generate Windows app icon
         shell: pwsh
         run: |
           py -3 -m pip install --disable-pip-version-check pillow
@@ -85,7 +85,6 @@ jobs:
         run: |
           flutter pub get
           py -3 tools/configure_platforms.py
-          dart run flutter_launcher_icons
           flutter analyze
 
       - name: Build Windows release
