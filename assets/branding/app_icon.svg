@@ -1,0 +1,36 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="96" x2="864" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2F6BFF"/>
+      <stop offset="1" stop-color="#1746C7"/>
+    </linearGradient>
+    <filter id="shadow" x="144" y="151" width="736" height="748" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#0A2B7A" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+
+  <g filter="url(#shadow)">
+    <!-- Desktop -->
+    <rect x="202" y="239" width="420" height="286" rx="44" fill="white" fill-opacity="0.98"/>
+    <rect x="244" y="281" width="336" height="194" rx="22" fill="#EAF0FF"/>
+    <path d="M333 584H491" stroke="white" stroke-width="42" stroke-linecap="round"/>
+    <path d="M412 512V584" stroke="white" stroke-width="42" stroke-linecap="round"/>
+
+    <!-- Phone -->
+    <rect x="616" y="399" width="206" height="360" rx="50" fill="white"/>
+    <rect x="646" y="449" width="146" height="232" rx="22" fill="#EAF0FF"/>
+    <circle cx="719" cy="717" r="14" fill="#2F6BFF"/>
+
+    <!-- Transfer arrows -->
+    <path d="M340 674H542" stroke="#BFD0FF" stroke-width="54" stroke-linecap="round"/>
+    <path d="M497 621L550 674L497 727" stroke="#BFD0FF" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <path d="M670 335H468" stroke="white" stroke-width="54" stroke-linecap="round"/>
+    <path d="M513 282L460 335L513 388" stroke="white" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- HAI spark -->
+  <path d="M792 181L809 224L852 241L809 258L792 301L775 258L732 241L775 224L792 181Z" fill="#DCE6FF"/>
+</svg>
